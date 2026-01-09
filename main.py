@@ -1,8 +1,8 @@
 from scapy.all import *
 from scapy.layers.l2 import ARP
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import Header, Footer, Input, Button
+from textual.containers import Horizontal, VerticalScroll
+from textual.widgets import Header, Footer, Input, Button, DataTable
 from textual._on import *
 
 class Spoofer:
@@ -37,15 +37,14 @@ class Spoofer:
             window = tcp_layer.window
             ttl = ip_layer.ttl
             if ttl <= 64 and window in [32120, 5840]:
-                print("Likely OS: Linux/FreeBSD")
+                return "~Linux"
             elif ttl <= 128:
-                print("Likely OS: Windows")
+                return "~Windows"
             elif ttl >= 200:
-                print("Likely OS: Cisco/Network Device")
-            else:
-                print("OS detection uncertain.")
+                return "~Cisco/Network Device"
 
-            return window
+
+            return None
 
 
     def request(self, ip):
@@ -53,7 +52,7 @@ class Spoofer:
         return arp_request
 
     def get_devices(self, ips):
-        arp_request = request(ips)
+        arp_request = self.request(ips)
         answered, unanswered = srp(arp_request, timeout=1, verbose=False)
         devices = []
         for sent, received in answered:
@@ -62,17 +61,20 @@ class Spoofer:
             print(received.psrc)
             info = None
             for port in [80, 49152]:
-                info = get_os(received.psrc, port)
+                info = self.get_os(received.psrc, port)
                 print(port)
                 if info:
                     break
+            if not info:
+                info = "Unknown"
+            device["os"] = info
             print(info)
             device["mac"] = received.hwsrc
             devices.append(device)
         return devices
 
     def get_mac(self, ip):
-        arp_request = request(ip)
+        arp_request = self.request(ip)
         answered, unanswered = srp(arp_request, timeout=2, verbose=False)
         if answered:
             return answered[0][1].hwsrc
@@ -101,23 +103,56 @@ class SpoofApp(App):
             width: 10%;
         }
         
+        Horizontal {
+            margin-top: 1;
+            dock: top;
+            height: auto; 
+
+        }
+        
+        #d_table {
+            margin-left: 30;
+            margin-top: 3;
+            width: auto;
+        }
+        
+        
         """
 
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
         self.spoofer = Spoofer()
+
 
     def compose(self) -> ComposeResult:
         yield(Horizontal(
-         Input(placeholder="Limit ip", type="integer", id="#limit"),
-         Button("✓", id="#enter_limit"))
+         Input(placeholder="Limit ip", type="integer", id="limit"),
+         Button("scan", id="enter_limit"))
         )
+        yield(DataTable(id="d_table"))
 
     @on(Button.Pressed, "#enter_limit")
-    def on__b_enter_limit(self) -> None:
-        limit = self.query_one("#limit", Input)
+    async def on__b_enter_limit(self) -> None:
+        self.run_worker(self.print_devices(), exclusive=True)
 
-        self.spoofer.get_devices(self.spoofer.request(self.spoofer.get_own_ip_address(limit.value)))
+
+    async def print_devices(self) -> None:
+
+        limit = self.query_one("#limit", Input)
+        self.generate_device_table(self.spoofer.get_devices(self.spoofer.get_ip_range(limit.value)))
+
+
+    def generate_device_table(self, device_list):
+        data_table = self.query_one("#d_table", DataTable)
+        data_table.clear(columns=True)
+        data_table.add_column("ip")
+        data_table.add_column("mac")
+        data_table.add_column("os")
+        for i in device_list:
+            data_table.add_row(i["ip"], i["mac"], i["os"])
+
+
+
 
 
 if __name__ == "__main__":
