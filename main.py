@@ -20,8 +20,6 @@ class Spoofer:
         router_ip = own_ip[:own_ip.rfind(".")] + ".1"
         return router_ip
 
-    #router_addr = get_router_ip_addr(get_own_ip_address())
-
     def get_os(self, ip, port):
         ip_p = IP(dst=ip)
         tcp_p = TCP(dport=port, flags="S")
@@ -236,7 +234,7 @@ class SpoofApp(App):
     async def spoof(self):
         v_ip = str(self.query_one("#victim", Input).value)
         p_ip = str(self.query_one("#pretending", Input).value)
-        # self.spoofer.spoof(v_ip, p_ip)
+        self.spoofer.spoof(v_ip, p_ip)
         container = self.query_one("#info_container", Container)
         horizontal = Horizontal(id="horizontal_info" + str(self.info_count))
 
@@ -252,7 +250,7 @@ class SpoofApp(App):
             self.run_worker(self.restore(button.number_for_delete, button.v_ip, button.p_ip), exclusive=True)
 
     async def restore(self, delete, v_ip, p_ip):
-        # self.spoofer.restore(v_ip, p_ip)
+        self.spoofer.restore(v_ip, p_ip)
         horizontal_info = self.query_one("#horizontal_info" + str(delete), Horizontal)
         await horizontal_info.remove()
 
